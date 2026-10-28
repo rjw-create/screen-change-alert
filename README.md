@@ -77,3 +77,7 @@ has no effect.
 
 If the camera will not open, close other apps that use it (Teams, Zoom, the
 Camera app) and check Windows Settings > Privacy & security > Camera.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
