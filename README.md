@@ -1,14 +1,59 @@
 # screen-change-alert
 
-Point your laptop camera at another screen (a monitor, TV, lab instrument,
-phone) and get a beep whenever what it shows changes.
+Point a camera at another screen (a monitor, TV, lab instrument, phone) and
+get a beep whenever what it shows changes.
 
-The script grabs frames from the camera, converts them to blurred grayscale,
-and compares each one to a reference image of the screen. When more than a
-set percentage of the picture has changed, it plays a sound, prints the time,
-and starts comparing against the new screen contents.
+There are two versions that work the same way:
 
-## Setup (Windows, PowerShell)
+- **Web page** (`index.html`): runs in a phone or laptop browser, with
+  nothing to install. On a phone it uses the back camera.
+- **Python script** (`screen_alert.py`): runs on a Windows computer with a
+  webcam.
+
+Both grab frames from the camera, convert them to blurred grayscale, and
+compare each one to a reference image of the screen. When more than a set
+percentage of the picture has changed, they play a sound, log the time, and
+start comparing against the new screen contents.
+
+## Web version
+
+Open **https://rjw-create.github.io/screen-change-alert/** in your phone's
+browser (Chrome on Android, Safari on iPhone) or on a laptop.
+
+1. Press **Start** and allow camera access.
+2. Point the camera at the screen and hold it steady. A stand or something to
+   lean the phone against works best.
+3. Press **Draw region** and drag a box around the screen, so movement around
+   it is ignored.
+4. Press **Test sound** to check you can hear the alert.
+5. Watch the change number while the screen is idle, and set **Alert when
+   this much changes** comfortably above it.
+
+Settings are remembered in that browser. On Android the phone also vibrates
+on each alert.
+
+Things to know:
+
+- **Keep the page open and the screen on.** Phones turn the camera off when
+  the screen locks or you switch apps. The page asks the browser to keep the
+  screen awake, but some browsers or battery saver modes refuse.
+- **iPhone silent mode:** with the iPhone set to silent, the beep may not
+  play. Turn silent mode off and the volume up.
+- **Background tabs on a laptop:** if the page is in a tab you are not
+  looking at, the browser slows it down, so alerts can be delayed by a
+  second or more.
+- **Camera access needs a secure address**: `https://`, or `localhost` on the
+  same computer.
+
+To run the web page locally on your laptop instead:
+
+```powershell
+python -m http.server 8000
+```
+
+Then open http://localhost:8000 in your browser.
+
+## Python version: setup (Windows, PowerShell)
 
 Requires Python 3.10 or newer.
 

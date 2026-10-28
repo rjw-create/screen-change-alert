@@ -1,0 +1,579 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Screen Change Alert</title>
+<style>
+  :root {
+    --bg: #f6f7f9;
+    --surface: #ffffff;
+    --text: #1b1f24;
+    --muted: #5b6470;
+    --border: #d9dde3;
+    --accent: #1f6feb;
+    --accent-text: #ffffff;
+    --alert: #d1242f;
+    --region: #2da44e;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0e1116;
+      --surface: #161b22;
+      --text: #e6edf3;
+      --muted: #9198a1;
+      --border: #30363d;
+      --accent: #4493f8;
+      --accent-text: #0e1116;
+      --alert: #f85149;
+      --region: #3fb950;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  main { max-width: 720px; margin: 0 auto; padding: 16px; }
+  h1 { font-size: 1.5rem; margin: 8px 0 4px; }
+  h2 { font-size: 1rem; margin: 0 0 8px; }
+  p { margin: 0 0 12px; }
+  .muted { color: var(--muted); }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px;
+    margin-bottom: 16px;
+  }
+  .stage {
+    position: relative;
+    background: #000;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 3px solid transparent;
+    transition: border-color 0.2s;
+  }
+  .stage.flash { border-color: var(--alert); }
+  .stage video { display: block; width: 100%; height: auto; min-height: 120px; }
+  .stage canvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+  }
+  .stage canvas.drawing { pointer-events: auto; touch-action: none; cursor: crosshair; }
+  .placeholder[hidden] { display: none; }
+  .placeholder {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #c9d1d9;
+    padding: 16px;
+    text-align: center;
+  }
+  .buttons { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+  button, select {
+    font: inherit;
+    padding: 10px 14px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    min-height: 44px;
+  }
+  button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+  button:disabled { opacity: 0.45; }
+  select { max-width: 100%; }
+  .readout { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-top: 12px; }
+  .percent { font-size: 2rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .message { color: var(--alert); margin-top: 12px; }
+  .message:empty { display: none; }
+  label { display: block; margin-bottom: 12px; }
+  .label-row { display: flex; justify-content: space-between; gap: 8px; }
+  input[type="range"] { width: 100%; accent-color: var(--accent); }
+  ol { margin: 0; padding-left: 1.5em; }
+  ol:empty::before { content: "No changes yet."; color: var(--muted); margin-left: -1.5em; }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Screen change alert</h1>
+  <p class="muted">Point your camera at a screen. This page beeps when what the screen shows changes.
+    Keep this page open and your device's screen on while it watches.</p>
+
+  <section class="card">
+    <div class="stage" id="stage">
+      <video id="video" playsinline muted></video>
+      <canvas id="overlay"></canvas>
+      <div class="placeholder" id="placeholder">Press Start to turn on the camera.</div>
+    </div>
+
+    <div class="buttons">
+      <button class="primary" id="start">Start</button>
+      <button id="stop" disabled>Stop</button>
+      <button id="draw" disabled>Draw region</button>
+      <button id="clear" disabled>Clear region</button>
+      <button id="test">Test sound</button>
+      <select id="camera" aria-label="Camera" hidden></select>
+    </div>
+
+    <div class="readout">
+      <span class="percent" id="percent">--</span>
+      <span class="muted" id="status">Not started</span>
+    </div>
+    <div class="message" id="message" role="alert"></div>
+  </section>
+
+  <section class="card">
+    <h2>Settings</h2>
+    <label>
+      <span class="label-row"><span>Alert when this much changes</span><span id="threshold-value"></span></span>
+      <input type="range" id="threshold" min="0.5" max="30" step="0.5" value="5">
+    </label>
+    <label>
+      <span class="label-row"><span>Ignore brightness changes smaller than</span><span id="delta-value"></span></span>
+      <input type="range" id="delta" min="5" max="80" step="1" value="25">
+    </label>
+    <label>
+      <span class="label-row"><span>Wait between alerts</span><span id="cooldown-value"></span></span>
+      <input type="range" id="cooldown" min="0" max="30" step="0.5" value="3">
+    </label>
+    <p class="muted">Watch the change number while the screen is idle, and set the alert level comfortably above it.
+      Use Draw region to box in the screen so movement around it is ignored.</p>
+  </section>
+
+  <section class="card">
+    <h2>Changes detected</h2>
+    <ol id="log"></ol>
+  </section>
+
+  <p class="muted"><a href="https://github.com/rjw-create/screen-change-alert">Source on GitHub</a></p>
+</main>
+
+<script>
+  // Frames are shrunk to this many pixels on their longest side before
+  // comparing. It keeps the work small enough for phones and acts as part
+  // of the noise smoothing.
+  const PROCESS_SIZE = 160;
+  const BLUR_RADIUS = 2;
+  // A timer rather than requestAnimationFrame, because animation frames stop
+  // completely in a background tab while timers only slow down.
+  const FRAME_INTERVAL_MS = 66;
+
+  // Auto-exposure takes a few seconds to settle after the camera starts, and
+  // comparing against those frames triggers false alerts. Wait until
+  // brightness stops moving, but never longer than the limit.
+  const WARMUP_STABLE_FRAMES = 30;
+  const WARMUP_MAX_MS = 10000;
+
+  // Matches the Python script: how quickly the reference image follows
+  // gradual change such as lighting drift.
+  const DRIFT_RATE = 0.1;
+
+  const MAX_LOG_ENTRIES = 50;
+  const SETTINGS_KEY = "screen-change-alert-settings";
+
+  const $ = (id) => document.getElementById(id);
+  const video = $("video");
+  const overlay = $("overlay");
+  const overlayCtx = overlay.getContext("2d");
+  const work = document.createElement("canvas");
+  const workCtx = work.getContext("2d", { willReadFrequently: true });
+  const settings = ["threshold", "delta", "cooldown"];
+
+  let stream = null;
+  let audioCtx = null;
+  let wakeLock = null;
+  let frameTimer = 0;
+  let reference = null;
+  let lastAlert = -Infinity;
+  let warmup = null;
+  // Region and drag rectangles are fractions (0 to 1) of the video frame,
+  // so they stay correct whatever size the video is displayed at.
+  let region = null;
+  let drawing = false;
+  let dragStart = null;
+  let dragRect = null;
+
+  function setting(name) {
+    return Number($(name).value);
+  }
+
+  function showSettings() {
+    $("threshold-value").textContent = setting("threshold") + "%";
+    $("delta-value").textContent = setting("delta") + " of 255";
+    $("cooldown-value").textContent = setting("cooldown") + " s";
+  }
+
+  function loadSettings() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY));
+      for (const name of settings) {
+        if (saved && saved[name] != null) $(name).value = saved[name];
+      }
+    } catch {
+      // Storage can be blocked (private browsing); the defaults still work.
+    }
+    showSettings();
+  }
+
+  function saveSettings() {
+    showSettings();
+    try {
+      const values = Object.fromEntries(settings.map((name) => [name, setting(name)]));
+      localStorage.setItem(SETTINGS_KEY, JSON.stringify(values));
+    } catch {
+      // See loadSettings.
+    }
+  }
+
+  function setStatus(text) {
+    $("status").textContent = text;
+  }
+
+  function showMessage(text) {
+    $("message").textContent = text;
+  }
+
+  function updateButtons() {
+    const running = stream !== null;
+    $("start").disabled = running;
+    $("stop").disabled = !running;
+    $("draw").disabled = !running;
+    $("clear").disabled = region === null;
+    $("placeholder").hidden = running;
+  }
+
+  function unlockAudio() {
+    // Phones only allow sound from a page after a tap, so the audio context
+    // is created and resumed inside the Start and Test sound handlers.
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    audioCtx.resume();
+  }
+
+  function beep() {
+    if (!audioCtx) return;
+    const t = audioCtx.currentTime;
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.frequency.value = 1000;
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.exponentialRampToValueAtTime(0.4, t + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.3);
+    osc.connect(gain).connect(audioCtx.destination);
+    osc.start(t);
+    osc.stop(t + 0.32);
+  }
+
+  async function requestWakeLock() {
+    if (!("wakeLock" in navigator)) return;
+    try {
+      wakeLock = await navigator.wakeLock.request("screen");
+    } catch {
+      // Refused, for example in battery saver mode. Watching still works
+      // while the user keeps the screen on.
+    }
+  }
+
+  function cameraError(err) {
+    switch (err.name) {
+      case "NotAllowedError":
+        return "Camera permission was denied. Allow camera access for this page in your browser settings, then press Start again.";
+      case "NotFoundError":
+      case "OverconstrainedError":
+        return "No camera was found.";
+      case "NotReadableError":
+        return "The camera is being used by another app. Close that app and press Start again.";
+      default:
+        return "Could not start the camera: " + err.message;
+    }
+  }
+
+  async function start(deviceId) {
+    showMessage("");
+    if (!window.isSecureContext || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      showMessage("Camera access only works on a secure page. Open this page from an https:// address or from http://localhost.");
+      return;
+    }
+    unlockAudio();
+    // The back camera is the one that can face another screen on a phone.
+    // "ideal" falls back to whatever camera exists, such as a laptop's.
+    const constraints = deviceId ? { deviceId: { exact: deviceId } } : { facingMode: { ideal: "environment" } };
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ video: constraints, audio: false });
+    } catch (err) {
+      showMessage(cameraError(err));
+      return;
+    }
+    // Phones stop the camera when the page goes to the background.
+    stream.getVideoTracks()[0].addEventListener("ended", () => {
+      stop();
+      showMessage("The camera was turned off. Press Start to watch again.");
+    });
+    video.srcObject = stream;
+    await video.play();
+    beginWarmup();
+    lastAlert = -Infinity;
+    updateButtons();
+    requestWakeLock();
+    listCameras();
+    clearInterval(frameTimer);
+    frameTimer = setInterval(tick, FRAME_INTERVAL_MS);
+  }
+
+  function stop() {
+    clearInterval(frameTimer);
+    if (stream) stream.getTracks().forEach((track) => track.stop());
+    stream = null;
+    video.srcObject = null;
+    if (wakeLock) wakeLock.release().catch(() => {});
+    wakeLock = null;
+    reference = null;
+    setDrawing(false);
+    $("percent").textContent = "--";
+    setStatus("Stopped");
+    updateButtons();
+  }
+
+  async function listCameras() {
+    const select = $("camera");
+    const devices = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === "videoinput");
+    const current = stream && stream.getVideoTracks()[0].getSettings().deviceId;
+    select.replaceChildren(...devices.map((device, i) => {
+      const option = document.createElement("option");
+      option.value = device.deviceId;
+      option.textContent = device.label || "Camera " + (i + 1);
+      option.selected = device.deviceId === current;
+      return option;
+    }));
+    select.hidden = devices.length < 2;
+  }
+
+  function beginWarmup() {
+    reference = null;
+    warmup = { values: [], until: performance.now() + WARMUP_MAX_MS };
+    setStatus("Letting the camera adjust...");
+  }
+
+  function grabFrame() {
+    const vw = video.videoWidth;
+    const vh = video.videoHeight;
+    const r = region || { x: 0, y: 0, w: 1, h: 1 };
+    const sx = r.x * vw, sy = r.y * vh, sw = r.w * vw, sh = r.h * vh;
+    const scale = PROCESS_SIZE / Math.max(sw, sh);
+    const w = Math.max(1, Math.round(sw * scale));
+    const h = Math.max(1, Math.round(sh * scale));
+    if (work.width !== w || work.height !== h) {
+      work.width = w;
+      work.height = h;
+    }
+    workCtx.drawImage(video, sx, sy, sw, sh, 0, 0, w, h);
+    const rgba = workCtx.getImageData(0, 0, w, h).data;
+    const gray = new Float32Array(w * h);
+    for (let i = 0, j = 0; i < gray.length; i++, j += 4) {
+      gray[i] = 0.299 * rgba[j] + 0.587 * rgba[j + 1] + 0.114 * rgba[j + 2];
+    }
+    return blur(gray, w, h);
+  }
+
+  // Smooths out sensor noise and screen flicker so only real content
+  // changes stand out. A box blur done in two passes keeps it fast.
+  function blur(src, w, h) {
+    const tmp = new Float32Array(src.length);
+    const out = new Float32Array(src.length);
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        let sum = 0, n = 0;
+        for (let k = Math.max(0, x - BLUR_RADIUS); k <= Math.min(w - 1, x + BLUR_RADIUS); k++) {
+          sum += src[y * w + k];
+          n++;
+        }
+        tmp[y * w + x] = sum / n;
+      }
+    }
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        let sum = 0, n = 0;
+        for (let k = Math.max(0, y - BLUR_RADIUS); k <= Math.min(h - 1, y + BLUR_RADIUS); k++) {
+          sum += tmp[k * w + x];
+          n++;
+        }
+        out[y * w + x] = sum / n;
+      }
+    }
+    return out;
+  }
+
+  function changedPercent(a, b, delta) {
+    let changed = 0;
+    for (let i = 0; i < a.length; i++) {
+      if (Math.abs(a[i] - b[i]) > delta) changed++;
+    }
+    return (100 * changed) / a.length;
+  }
+
+  function mean(values) {
+    let sum = 0;
+    for (const v of values) sum += v;
+    return sum / values.length;
+  }
+
+  function tick() {
+    if (video.readyState < 2 || !video.videoWidth) return;
+    const now = performance.now();
+    const current = grabFrame();
+
+    if (warmup) {
+      warmup.values = warmup.values.concat(mean(current)).slice(-WARMUP_STABLE_FRAMES);
+      const settled = warmup.values.length === WARMUP_STABLE_FRAMES &&
+        Math.max(...warmup.values) - Math.min(...warmup.values) < 2;
+      if (settled || now > warmup.until) {
+        warmup = null;
+        reference = current;
+        setStatus("Watching, alerts at " + setting("threshold") + "%");
+      }
+      return;
+    }
+    // The region changed size since the last frame.
+    if (!reference || reference.length !== current.length) {
+      reference = current;
+      return;
+    }
+
+    const percent = changedPercent(reference, current, setting("delta"));
+    $("percent").textContent = percent.toFixed(1) + "%";
+    setStatus("Watching, alerts at " + setting("threshold") + "%");
+
+    if (now - lastAlert < setting("cooldown") * 1000) {
+      // Keep following the screen while it finishes changing, so one
+      // change (like a page loading) produces one alert.
+      reference = current;
+    } else if (percent >= setting("threshold")) {
+      alertChange(percent);
+      lastAlert = now;
+      reference = current;
+    } else {
+      for (let i = 0; i < reference.length; i++) {
+        reference[i] += DRIFT_RATE * (current[i] - reference[i]);
+      }
+    }
+  }
+
+  function alertChange(percent) {
+    beep();
+    if (navigator.vibrate) navigator.vibrate(200);
+    const stage = $("stage");
+    stage.classList.add("flash");
+    setTimeout(() => stage.classList.remove("flash"), 600);
+
+    const item = document.createElement("li");
+    item.textContent = new Date().toLocaleTimeString() + " - " + percent.toFixed(1) + "% changed";
+    const log = $("log");
+    log.prepend(item);
+    while (log.children.length > MAX_LOG_ENTRIES) log.lastChild.remove();
+  }
+
+  function setDrawing(on) {
+    drawing = on;
+    overlay.classList.toggle("drawing", on);
+    $("draw").textContent = on ? "Cancel drawing" : "Draw region";
+    if (on) setStatus("Drag a box around the screen you want to watch");
+    dragStart = null;
+    dragRect = null;
+    redraw();
+  }
+
+  function pointerPosition(event) {
+    const box = overlay.getBoundingClientRect();
+    const clamp = (v) => Math.min(1, Math.max(0, v));
+    return { x: clamp((event.clientX - box.left) / box.width), y: clamp((event.clientY - box.top) / box.height) };
+  }
+
+  function rectBetween(a, b) {
+    return { x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), w: Math.abs(a.x - b.x), h: Math.abs(a.y - b.y) };
+  }
+
+  function redraw() {
+    const dpr = window.devicePixelRatio || 1;
+    const w = Math.round(overlay.clientWidth * dpr);
+    const h = Math.round(overlay.clientHeight * dpr);
+    if (overlay.width !== w || overlay.height !== h) {
+      overlay.width = w;
+      overlay.height = h;
+    }
+    overlayCtx.clearRect(0, 0, w, h);
+    const shown = dragRect || region;
+    if (!shown) return;
+    const x = shown.x * w, y = shown.y * h, rw = shown.w * w, rh = shown.h * h;
+    overlayCtx.fillStyle = "rgba(0, 0, 0, 0.45)";
+    overlayCtx.fillRect(0, 0, w, h);
+    overlayCtx.clearRect(x, y, rw, rh);
+    overlayCtx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue("--region");
+    overlayCtx.lineWidth = 3 * dpr;
+    overlayCtx.setLineDash(dragRect ? [8 * dpr, 6 * dpr] : []);
+    overlayCtx.strokeRect(x, y, rw, rh);
+  }
+
+  overlay.addEventListener("pointerdown", (event) => {
+    if (!drawing) return;
+    overlay.setPointerCapture(event.pointerId);
+    dragStart = pointerPosition(event);
+  });
+  overlay.addEventListener("pointermove", (event) => {
+    if (!dragStart) return;
+    dragRect = rectBetween(dragStart, pointerPosition(event));
+    redraw();
+  });
+  overlay.addEventListener("pointerup", () => {
+    if (!dragStart) return;
+    // Ignore taps and tiny boxes, which are almost always accidental.
+    if (dragRect && dragRect.w > 0.03 && dragRect.h > 0.03) {
+      region = dragRect;
+      reference = null;
+    }
+    setDrawing(false);
+    updateButtons();
+    if (stream && !warmup) setStatus("Watching, alerts at " + setting("threshold") + "%");
+  });
+
+  $("start").addEventListener("click", () => start());
+  $("stop").addEventListener("click", stop);
+  $("draw").addEventListener("click", () => setDrawing(!drawing));
+  $("clear").addEventListener("click", () => {
+    region = null;
+    reference = null;
+    redraw();
+    updateButtons();
+  });
+  $("test").addEventListener("click", () => {
+    unlockAudio();
+    beep();
+  });
+  $("camera").addEventListener("change", (event) => {
+    stop();
+    start(event.target.value);
+  });
+  for (const name of settings) $(name).addEventListener("input", saveSettings);
+
+  new ResizeObserver(redraw).observe(overlay);
+
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState !== "visible" || !stream) return;
+    // The wake lock is dropped whenever the page is hidden, and the camera
+    // may re-adjust its exposure when it resumes.
+    requestWakeLock();
+    beginWarmup();
+  });
+
+  loadSettings();
+  updateButtons();
+</script>
+</body>
+</html>
