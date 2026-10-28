@@ -25,7 +25,9 @@ browser (Chrome on Android, Safari on iPhone) or on a laptop.
    lean the phone against works best.
 3. Press **Draw region** and drag a box around the screen, so movement around
    it is ignored.
-4. Press **Test sound** to check you can hear the alert.
+4. Press **Test sound** to check you can hear the alert. Under Settings,
+   **Alert sound** switches between Loud (three sharp beeps, the default)
+   and Soft (one gentle beep), and **Volume** sets how loud it plays.
 5. Watch the change number while the screen is idle, and set **Alert when
    this much changes** comfortably above it.
 
@@ -37,6 +39,9 @@ Things to know:
 - **Keep the page open and the screen on.** Phones turn the camera off when
   the screen locks or you switch apps. The page asks the browser to keep the
   screen awake, but some browsers or battery saver modes refuse.
+- **Still too quiet?** The page plays sound as media, like a video, so turn
+  up the phone's media volume (not the ringer). On Android, open the volume
+  panel and raise the Media slider.
 - **iPhone silent mode:** with the iPhone set to silent, the beep may not
   play. Turn silent mode off and the volume up.
 - **Background tabs on a laptop:** if the page is in a tab you are not

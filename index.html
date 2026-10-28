@@ -97,6 +97,7 @@
   label { display: block; margin-bottom: 12px; }
   .label-row { display: flex; justify-content: space-between; gap: 8px; }
   input[type="range"] { width: 100%; accent-color: var(--accent); }
+  label select { display: block; width: 100%; margin-top: 4px; }
   ol { margin: 0; padding-left: 1.5em; }
   ol:empty::before { content: "No changes yet."; color: var(--muted); margin-left: -1.5em; }
   a { color: var(--accent); }
@@ -145,6 +146,17 @@
       <span class="label-row"><span>Wait between alerts</span><span id="cooldown-value"></span></span>
       <input type="range" id="cooldown" min="0" max="30" step="0.5" value="3">
     </label>
+    <label>
+      <span class="label-row"><span>Alert sound</span></span>
+      <select id="style">
+        <option value="loud">Loud: three sharp beeps</option>
+        <option value="soft">Soft: one gentle beep</option>
+      </select>
+    </label>
+    <label>
+      <span class="label-row"><span>Volume</span><span id="volume-value"></span></span>
+      <input type="range" id="volume" min="10" max="100" step="5" value="100">
+    </label>
     <p class="muted">Watch the change number while the screen is idle, and set the alert level comfortably above it.
       Use Draw region to box in the screen so movement around it is ignored.</p>
   </section>
@@ -177,6 +189,13 @@
   // gradual change such as lighting drift.
   const DRIFT_RATE = 0.1;
 
+  // Small phone speakers are quiet at low pitches. A buzzy square wave
+  // around 2000 Hz, repeated, is much easier to hear than a pure 1000 Hz tone.
+  const SOUNDS = {
+    loud: { type: "square", frequency: 2000, beeps: 3, length: 0.18, gap: 0.08 },
+    soft: { type: "sine", frequency: 1000, beeps: 1, length: 0.3, gap: 0 },
+  };
+
   const MAX_LOG_ENTRIES = 50;
   const SETTINGS_KEY = "screen-change-alert-settings";
 
@@ -186,7 +205,7 @@
   const overlayCtx = overlay.getContext("2d");
   const work = document.createElement("canvas");
   const workCtx = work.getContext("2d", { willReadFrequently: true });
-  const settings = ["threshold", "delta", "cooldown"];
+  const settings = ["threshold", "delta", "cooldown", "style", "volume"];
 
   let stream = null;
   let audioCtx = null;
@@ -210,6 +229,7 @@
     $("threshold-value").textContent = setting("threshold") + "%";
     $("delta-value").textContent = setting("delta") + " of 255";
     $("cooldown-value").textContent = setting("cooldown") + " s";
+    $("volume-value").textContent = setting("volume") + "%";
   }
 
   function loadSettings() {
@@ -227,7 +247,7 @@
   function saveSettings() {
     showSettings();
     try {
-      const values = Object.fromEntries(settings.map((name) => [name, setting(name)]));
+      const values = Object.fromEntries(settings.map((name) => [name, $(name).value]));
       localStorage.setItem(SETTINGS_KEY, JSON.stringify(values));
     } catch {
       // See loadSettings.
@@ -258,18 +278,39 @@
     audioCtx.resume();
   }
 
+  function currentSound() {
+    return SOUNDS[$("style").value] || SOUNDS.loud;
+  }
+
   function beep() {
     if (!audioCtx) return;
-    const t = audioCtx.currentTime;
-    const osc = audioCtx.createOscillator();
-    const gain = audioCtx.createGain();
-    osc.frequency.value = 1000;
-    gain.gain.setValueAtTime(0.0001, t);
-    gain.gain.exponentialRampToValueAtTime(0.4, t + 0.01);
-    gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.3);
-    osc.connect(gain).connect(audioCtx.destination);
-    osc.start(t);
-    osc.stop(t + 0.32);
+    const sound = currentSound();
+    const peak = setting("volume") / 100;
+    for (let i = 0; i < sound.beeps; i++) {
+      const t = audioCtx.currentTime + i * (sound.length + sound.gap);
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = sound.type;
+      osc.frequency.value = sound.frequency;
+      // Short fades at each end stop the speaker from clicking.
+      gain.gain.setValueAtTime(0.0001, t);
+      gain.gain.exponentialRampToValueAtTime(peak, t + 0.01);
+      gain.gain.setValueAtTime(peak, t + sound.length - 0.03);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + sound.length);
+      osc.connect(gain).connect(audioCtx.destination);
+      osc.start(t);
+      osc.stop(t + sound.length + 0.02);
+    }
+  }
+
+  function vibratePattern() {
+    const sound = currentSound();
+    const pattern = [];
+    for (let i = 0; i < sound.beeps; i++) {
+      if (i > 0) pattern.push(sound.gap * 1000);
+      pattern.push(sound.length * 1000);
+    }
+    return pattern;
   }
 
   async function requestWakeLock() {
@@ -468,7 +509,7 @@
 
   function alertChange(percent) {
     beep();
-    if (navigator.vibrate) navigator.vibrate(200);
+    if (navigator.vibrate) navigator.vibrate(vibratePattern());
     const stage = $("stage");
     stage.classList.add("flash");
     setTimeout(() => stage.classList.remove("flash"), 600);
